@@ -10,19 +10,13 @@ public struct MenuBarRootView: View {
     public var body: some View {
         VStack(spacing: 12) {
             header
-
-            if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
+            searchBar
+            messages
             content
             footer
         }
         .padding(14)
-        .frame(width: 440, height: 560)
+        .frame(width: 460, height: 600)
         .sheet(item: $viewModel.sheet) { sheet in
             switch sheet {
             case .add:
@@ -37,7 +31,7 @@ public struct MenuBarRootView: View {
 
     private var header: some View {
         HStack {
-            Text("2FA")
+            Text("2fa")
                 .font(.title2.bold())
 
             Spacer()
@@ -66,6 +60,26 @@ public struct MenuBarRootView: View {
         }
     }
 
+    private var searchBar: some View {
+        TextField("Search name, group, or note", text: $viewModel.searchText)
+            .textFieldStyle(.roundedBorder)
+    }
+
+    @ViewBuilder
+    private var messages: some View {
+        if let errorMessage = viewModel.errorMessage {
+            Text(errorMessage)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if let statusMessage = viewModel.statusMessage {
+            Text(statusMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     @ViewBuilder
     private var content: some View {
         if viewModel.accounts.isEmpty {
@@ -73,7 +87,8 @@ public struct MenuBarRootView: View {
                 viewModel.sheet = .add
             }
         } else if viewModel.rows.isEmpty {
-            EmptyStateView(title: "No accounts in this group", message: "Choose All or another group.") {
+            EmptyStateView(title: "No matching accounts", message: "Clear search or choose another group.") {
+                viewModel.searchText = ""
                 viewModel.selectedGroup = "All"
             }
         } else {

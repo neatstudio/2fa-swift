@@ -91,6 +91,26 @@ func runVerification() throws {
     try expect(goAccounts[0].secret == "JBSWY3DPEHPK3PXP", "Go JSON secret normalization failed")
     try expect(try goRepository.displayRows(accounts: goAccounts).count == 1, "Go JSON display row generation failed")
 
+    let exportURL = goRepository.metadataURL.deletingLastPathComponent().appendingPathComponent("export.json")
+    try goRepository.export(to: exportURL)
+    try expect(FileManager.default.fileExists(atPath: exportURL.path), "Export file was not created")
+
+    let importRepository = makeRepository()
+    try expect(try importRepository.importAccounts(from: exportURL, merge: false) == 1, "Replace import count failed")
+    try expect(try importRepository.load().map(\.name) == ["temoneyBarriger"], "Replace import content failed")
+    try expectThrows("Merge import accepted a duplicate account name") {
+        _ = try importRepository.importAccounts(from: exportURL, merge: true)
+    }
+
+    let damagedRepository = makeRepository()
+    try FileManager.default.createDirectory(at: damagedRepository.metadataURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data("not json".utf8).write(to: damagedRepository.metadataURL)
+    try expectThrows("Damaged store was not detected") {
+        _ = try damagedRepository.load()
+    }
+    let backups = try FileManager.default.contentsOfDirectory(at: damagedRepository.metadataURL.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+    try expect(backups.contains { $0.lastPathComponent.contains("damaged") }, "Damaged store backup was not created")
+
     let liveRepository = AccountRepository.live()
     let liveAccounts = try liveRepository.load()
     print("Live accounts loaded: \(liveAccounts.count)")

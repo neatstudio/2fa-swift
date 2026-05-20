@@ -5,6 +5,8 @@ public enum AccountRepositoryError: LocalizedError, Equatable {
     case duplicateName(String)
     case missingSecret
     case accountNotFound
+    case unreadableStore(String)
+    case invalidImport(String)
 
     public var errorDescription: String? {
         switch self {
@@ -16,6 +18,10 @@ public enum AccountRepositoryError: LocalizedError, Equatable {
             return "Secret is required."
         case .accountNotFound:
             return "Account was not found."
+        case .unreadableStore(let backupPath):
+            return "The accounts file could not be read. A backup was saved at \(backupPath)."
+        case .invalidImport(let reason):
+            return "Import failed: \(reason)"
         }
     }
 }
@@ -51,9 +57,15 @@ public final class AccountRepository {
         guard fileManager.fileExists(atPath: metadataURL.path) else {
             return []
         }
-        let data = try Data(contentsOf: metadataURL)
-        let snapshot = try decoder.decode(AccountStoreSnapshot.self, from: data)
-        return snapshot.accounts.map(normalizedLoadedAccount)
+
+        do {
+            let data = try Data(contentsOf: metadataURL)
+            let snapshot = try decoder.decode(AccountStoreSnapshot.self, from: data)
+            return try validate(snapshot.accounts.map(normalizedLoadedAccount))
+        } catch {
+            let backupURL = try backupDamagedStore()
+            throw AccountRepositoryError.unreadableStore(backupURL.path)
+        }
     }
 
     public func add(name: String, group: String, note: String, secret: String, now: Date = Date()) throws -> Account {
@@ -109,6 +121,50 @@ public final class AccountRepository {
         try save(accounts)
     }
 
+    public func export(to destinationURL: URL) throws {
+        let accounts = try load()
+        let data = try encoder.encode(AccountStoreSnapshot(accounts: accounts))
+        try data.write(to: destinationURL, options: .atomic)
+        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destinationURL.path)
+    }
+
+    public func importAccounts(from sourceURL: URL, merge: Bool, now: Date = Date()) throws -> Int {
+        let data = try Data(contentsOf: sourceURL)
+        let snapshot: AccountStoreSnapshot
+        do {
+            snapshot = try decoder.decode(AccountStoreSnapshot.self, from: data)
+        } catch {
+            throw AccountRepositoryError.invalidImport("The selected file is not a valid accounts.json file.")
+        }
+
+        let importedAccounts: [Account]
+        do {
+            importedAccounts = try validate(snapshot.accounts.map(normalizedLoadedAccount))
+            for account in importedAccounts {
+                _ = try totpService.code(secret: account.secret, date: now)
+            }
+        } catch {
+            throw AccountRepositoryError.invalidImport(error.localizedDescription)
+        }
+
+        let result: [Account]
+        if merge {
+            var existing = try load()
+            for account in importedAccounts {
+                if existing.contains(where: { $0.name == account.name }) {
+                    throw AccountRepositoryError.duplicateName(account.name)
+                }
+                existing.append(account)
+            }
+            result = existing
+        } else {
+            result = importedAccounts
+        }
+
+        try save(result)
+        return importedAccounts.count
+    }
+
     public func displayRows(accounts: [Account], date: Date = Date()) throws -> [AccountDisplayRow] {
         try accounts.map { account in
             AccountDisplayRow(
@@ -120,9 +176,13 @@ public final class AccountRepository {
     }
 
     private func save(_ accounts: [Account]) throws {
+        let validAccounts = try validate(accounts)
         let directory = metadataURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let data = try encoder.encode(AccountStoreSnapshot(accounts: accounts))
+        if fileManager.fileExists(atPath: metadataURL.path) {
+            _ = try createBackup(suffix: "backup")
+        }
+        let data = try encoder.encode(AccountStoreSnapshot(accounts: validAccounts))
         let temporaryURL = directory.appendingPathComponent(".accounts.json.tmp")
         try data.write(to: temporaryURL, options: .atomic)
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporaryURL.path)
@@ -134,6 +194,18 @@ public final class AccountRepository {
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: metadataURL.path)
     }
 
+    private func validate(_ accounts: [Account]) throws -> [Account] {
+        var names = Set<String>()
+        for account in accounts {
+            guard !account.name.isEmpty else { throw AccountRepositoryError.emptyName }
+            guard !account.secret.isEmpty else { throw AccountRepositoryError.missingSecret }
+            guard names.insert(account.name).inserted else {
+                throw AccountRepositoryError.duplicateName(account.name)
+            }
+        }
+        return accounts
+    }
+
     private func normalizedLoadedAccount(_ account: Account) -> Account {
         Account(
             name: AccountInput.normalizedName(account.name),
@@ -143,5 +215,38 @@ public final class AccountRepository {
             createdAt: account.createdAt,
             updatedAt: account.updatedAt
         )
+    }
+
+    private func backupDamagedStore() throws -> URL {
+        try createBackup(suffix: "damaged")
+    }
+
+    private func createBackup(suffix: String) throws -> URL {
+        let directory = metadataURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        for index in 0..<1000 {
+            let name = index == 0
+                ? "accounts.\(timestamp()).\(suffix).json"
+                : "accounts.\(timestamp()).\(suffix).\(index).json"
+            let backupURL = directory.appendingPathComponent(name)
+            if !fileManager.fileExists(atPath: backupURL.path) {
+                try fileManager.copyItem(at: metadataURL, to: backupURL)
+                try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
+                return backupURL
+            }
+        }
+        let backupURL = directory.appendingPathComponent("accounts.\(UUID().uuidString).\(suffix).json")
+        try fileManager.copyItem(at: metadataURL, to: backupURL)
+        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
+        return backupURL
+    }
+
+    private func timestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
+        return formatter.string(from: Date())
     }
 }
