@@ -1,0 +1,102 @@
+import SwiftUI
+
+public struct MenuBarRootView: View {
+    @ObservedObject private var viewModel: AccountsViewModel
+
+    public init(viewModel: AccountsViewModel) {
+        self.viewModel = viewModel
+    }
+
+    public var body: some View {
+        VStack(spacing: 12) {
+            header
+
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            content
+            footer
+        }
+        .padding(14)
+        .frame(width: 440, height: 560)
+        .sheet(item: $viewModel.sheet) { sheet in
+            switch sheet {
+            case .add:
+                AccountEditorView(mode: .add, viewModel: viewModel)
+            case .edit(let account):
+                AccountEditorView(mode: .edit(account), viewModel: viewModel)
+            case .settings:
+                SettingsView(viewModel: viewModel)
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Text("2FA")
+                .font(.title2.bold())
+
+            Spacer()
+
+            Picker("Group", selection: $viewModel.selectedGroup) {
+                Text("All").tag("All")
+                ForEach(viewModel.groups, id: \.self) { group in
+                    Text(group).tag(group)
+                }
+            }
+            .frame(width: 150)
+
+            Button {
+                viewModel.sheet = .add
+            } label: {
+                Image(systemName: "plus")
+            }
+            .help("Add account")
+
+            Button {
+                viewModel.sheet = .settings
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .help("Settings")
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if viewModel.accounts.isEmpty {
+            EmptyStateView(title: "No accounts yet", message: "Add a 2FA account to start viewing codes.") {
+                viewModel.sheet = .add
+            }
+        } else if viewModel.rows.isEmpty {
+            EmptyStateView(title: "No accounts in this group", message: "Choose All or another group.") {
+                viewModel.selectedGroup = "All"
+            }
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(viewModel.rows) { row in
+                        AccountRowView(row: row, viewModel: viewModel)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private var footer: some View {
+        HStack {
+            Text("Using ~/.2fa/accounts.json")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Quit") {
+                NSApplication.shared.terminate(nil)
+            }
+        }
+    }
+}
