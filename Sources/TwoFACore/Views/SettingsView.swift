@@ -1,10 +1,9 @@
+import AppKit
 import SwiftUI
 
 public struct SettingsView: View {
     @ObservedObject var viewModel: AccountsViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var showingImportConfirmation = false
-    @State private var pendingImportURL: URL?
 
     public init(viewModel: AccountsViewModel) {
         self.viewModel = viewModel
@@ -71,49 +70,48 @@ public struct SettingsView: View {
         }
         .padding(20)
         .frame(width: 520, height: 360)
-        .confirmationDialog(
-            "Replace existing accounts?",
-            isPresented: $showingImportConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Replace", role: .destructive) {
-                if let pendingImportURL {
-                    _ = viewModel.importAccounts(from: pendingImportURL, merge: false)
-                }
-                pendingImportURL = nil
-            }
-            Button("Cancel", role: .cancel) {
-                pendingImportURL = nil
-            }
-        } message: {
-            Text("This creates a timestamped backup first, then replaces ~/.2fa/accounts.json with the selected file.")
-        }
     }
 
     private func exportAccounts() {
+        activateForPanel()
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "accounts.json"
         panel.canCreateDirectories = true
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            _ = viewModel.exportAccounts(to: url)
-        }
+        panel.level = .floating
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        _ = viewModel.exportAccounts(to: url)
     }
 
     private func chooseImportFile(merge: Bool) {
+        activateForPanel()
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            if merge {
-                _ = viewModel.importAccounts(from: url, merge: true)
-            } else {
-                pendingImportURL = url
-                showingImportConfirmation = true
-            }
+        panel.level = .floating
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if merge {
+            _ = viewModel.importAccounts(from: url, merge: true)
+        } else if confirmReplace() {
+            _ = viewModel.importAccounts(from: url, merge: false)
         }
+    }
+
+    private func confirmReplace() -> Bool {
+        activateForPanel()
+        let alert = NSAlert()
+        alert.messageText = "Replace existing accounts?"
+        alert.informativeText = "This creates a timestamped backup first, then replaces ~/.2fa/accounts.json with the selected file."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Replace")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func activateForPanel() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 }
