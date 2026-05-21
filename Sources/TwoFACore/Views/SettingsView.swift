@@ -78,10 +78,11 @@ public struct SettingsView: View {
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "accounts.json"
         panel.canCreateDirectories = true
-        panel.level = .floating
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        _ = viewModel.exportAccounts(to: url)
+        begin(panel) { response in
+            guard response == .OK, let url = panel.url else { return }
+            _ = viewModel.exportAccounts(to: url)
+        }
     }
 
     private func chooseImportFile(merge: Bool) {
@@ -90,17 +91,21 @@ public struct SettingsView: View {
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.level = .floating
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        if merge {
-            _ = viewModel.importAccounts(from: url, merge: true)
-        } else if confirmReplace() {
-            _ = viewModel.importAccounts(from: url, merge: false)
+        begin(panel) { response in
+            guard response == .OK, let url = panel.url else { return }
+            if merge {
+                _ = viewModel.importAccounts(from: url, merge: true)
+            } else {
+                confirmReplace { confirmed in
+                    guard confirmed else { return }
+                    _ = viewModel.importAccounts(from: url, merge: false)
+                }
+            }
         }
     }
 
-    private func confirmReplace() -> Bool {
+    private func confirmReplace(completion: @escaping (Bool) -> Void) {
         activateForPanel()
         let alert = NSAlert()
         alert.messageText = "Replace existing accounts?"
@@ -108,7 +113,28 @@ public struct SettingsView: View {
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Replace")
         alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn
+
+        if let window = panelParentWindow() {
+            alert.beginSheetModal(for: window) { response in
+                completion(response == .alertFirstButtonReturn)
+            }
+        } else {
+            completion(alert.runModal() == .alertFirstButtonReturn)
+        }
+    }
+
+    private func begin(_ panel: NSSavePanel, completion: @escaping (NSApplication.ModalResponse) -> Void) {
+        if let window = panelParentWindow() {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            completion(panel.runModal())
+        }
+    }
+
+    private func panelParentWindow() -> NSWindow? {
+        NSApplication.shared.keyWindow
+            ?? NSApplication.shared.mainWindow
+            ?? NSApplication.shared.windows.first { $0.isVisible && $0.canBecomeKey }
     }
 
     private func activateForPanel() {
