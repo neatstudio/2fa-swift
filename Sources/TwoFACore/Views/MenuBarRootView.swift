@@ -8,14 +8,14 @@ public struct MenuBarRootView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             header
             searchBar
             messages
             content
             footer
         }
-        .padding(14)
+        .padding(10)
         .frame(width: 460, height: 600)
         .sheet(item: $viewModel.sheet) { sheet in
             switch sheet {
@@ -93,7 +93,7 @@ public struct MenuBarRootView: View {
             }
         } else {
             ScrollView {
-                LazyVStack(spacing: 8) {
+                LazyVStack(spacing: 4) {
                     ForEach(viewModel.rows) { row in
                         AccountRowView(row: row, viewModel: viewModel)
                     }

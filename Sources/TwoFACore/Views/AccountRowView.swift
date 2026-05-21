@@ -6,51 +6,69 @@ struct AccountRowView: View {
     @State private var showingDeleteConfirmation = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
                     Text(row.account.name)
-                        .font(.headline)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
                     Text(row.account.group)
-                        .font(.caption)
+                        .font(.system(size: 10))
                         .foregroundStyle(.secondary)
-                    if !row.account.note.isEmpty {
-                        Text(row.account.note)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color(nsColor: .separatorColor).opacity(0.25))
+                        .clipShape(Capsule())
                 }
 
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(row.code)
-                        .font(.system(size: 26, weight: .semibold, design: .monospaced))
-                    Text("\(row.remaining)s")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(row.remaining <= 5 ? .red : .secondary)
+                if !row.account.note.isEmpty {
+                    Text(row.account.note)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack {
-                Button("Copy") {
+            Text(row.code)
+                .font(.system(size: 20, weight: .semibold, design: .monospaced))
+                .textSelection(.enabled)
+
+            Text("\(row.remaining)s")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(row.remaining <= 5 ? .red : .secondary)
+                .frame(width: 28, alignment: .trailing)
+
+            HStack(spacing: 2) {
+                Button {
                     viewModel.copyCode(row.code)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .frame(width: 22, height: 18)
                 }
-                Button("Edit") {
-                    viewModel.sheet = .edit(row.account)
+                .help("Copy code")
+
+                Menu {
+                    Button("Edit") {
+                        viewModel.sheet = .edit(row.account)
+                    }
+                    Button("Delete", role: .destructive) {
+                        showingDeleteConfirmation = true
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 22, height: 18)
                 }
-                Button("Delete", role: .destructive) {
-                    showingDeleteConfirmation = true
-                }
-                Spacer()
+                .menuStyle(.borderlessButton)
+                .help("More")
             }
             .buttonStyle(.borderless)
-            .font(.caption)
+            .font(.system(size: 11))
         }
-        .padding(10)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
         .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: 7))
         .confirmationDialog(
             "Delete \(row.account.name)?",
             isPresented: $showingDeleteConfirmation,
